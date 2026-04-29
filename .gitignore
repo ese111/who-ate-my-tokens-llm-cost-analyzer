@@ -1,3 +1,6 @@
 node_modules/
 dist/
 .DS_Store
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

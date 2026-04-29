@@ -62,6 +62,30 @@ export interface ParseState {
   last_mtime_ms: number;
 }
 
+export interface AdapterState {
+  active_skill: string | null;
+  active_prompt_id: string | null;
+  active_trigger: TokenRecord["trigger_type"];
+}
+
+export interface ParsedSession {
+  records: TokenRecord[];
+  state: AdapterState;
+}
+
+export interface LogAdapter {
+  readonly provider: string;
+  findSessionFiles(): string[];
+  extractSessionId(filePath: string): string;
+  parseContent(
+    text: string,
+    filePath: string,
+    sessionId: string,
+    existingIds: Set<string>,
+    resumeState: AdapterState | null,
+  ): ParsedSession;
+}
+
 export interface TaskUsageRow {
   task_name: string;
   total_input: number;

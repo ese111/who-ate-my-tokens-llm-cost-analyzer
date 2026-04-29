@@ -3,24 +3,13 @@ import Table from "cli-table3";
 import { readFileSync } from "node:fs";
 import { Database } from "../../db/schema.js";
 import { DB_PATH } from "../../shared/config.js";
-import { findAllSessionFiles, extractSessionId } from "../../parser/jsonl-reader.js";
-import { detectSkillFromUser, detectSkillFromAssistant } from "../../parser/skill-detector.js";
-import type { RawJsonlEntry, TokenRecord } from "../../shared/types.js";
+import { ClaudeAdapter } from "../../adapters/claude.js";
+import type { TokenRecord } from "../../shared/types.js";
 
-interface FreshRecord {
-  message_id: string;
-  model: string;
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  cache_create_tokens: number;
-  task_name: string | null;
-  trigger_type: TokenRecord["trigger_type"];
-}
+const adapter = new ClaudeAdapter();
 
 interface SessionVerifyResult {
   session_id: string;
-  file_path: string;
   jsonl_count: number;
   db_count: number;
   missing_in_db: number;
@@ -39,68 +28,25 @@ interface MismatchDetail {
   db?: { tokens: number; task: string | null };
 }
 
-function freshParseSession(filePath: string): Map<string, FreshRecord> {
-  const buf = readFileSync(filePath, "utf-8");
-  const lines = buf.split("\n").filter(l => l.trim());
-
-  let activeSkill: string | null = null;
-  let activeTrigger: TokenRecord["trigger_type"] = "none";
-  let activePromptId: string | null = null;
-
-  const latestByMsgId = new Map<string, FreshRecord>();
-
-  for (const line of lines) {
-    let entry: RawJsonlEntry;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
-
-    const userSkill = detectSkillFromUser(entry);
-    if (userSkill) {
-      activeSkill = userSkill.name;
-      activeTrigger = userSkill.trigger_type;
-      activePromptId = entry.promptId ?? null;
-      continue;
-    }
-
-    if (entry.type === "user" && entry.promptId && entry.promptId !== activePromptId) {
-      activeSkill = null;
-      activeTrigger = "none";
-      activePromptId = entry.promptId;
-    }
-
-    const modelSkill = detectSkillFromAssistant(entry);
-    if (modelSkill) {
-      activeSkill = modelSkill.name;
-      activeTrigger = modelSkill.trigger_type;
-    }
-
-    if (entry.type === "assistant" && entry.message?.id && entry.message?.usage) {
-      const usage = entry.message.usage;
-      latestByMsgId.set(entry.message.id, {
-        message_id: entry.message.id,
-        model: entry.message.model ?? "unknown",
-        input_tokens: usage.input_tokens ?? 0,
-        output_tokens: usage.output_tokens ?? 0,
-        cache_read_tokens: usage.cache_read_input_tokens ?? 0,
-        cache_create_tokens: usage.cache_creation_input_tokens ?? 0,
-        task_name: activeSkill,
-        trigger_type: activeTrigger,
-      });
-    }
-  }
-
-  return latestByMsgId;
-}
-
 function sumTokens(r: { input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_create_tokens: number }): number {
   return r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_create_tokens;
 }
 
+function freshParseSession(filePath: string): Map<string, TokenRecord> {
+  const text = readFileSync(filePath, "utf-8");
+  const sessionId = adapter.extractSessionId(filePath);
+  const emptySet = new Set<string>();
+  const result = adapter.parseContent(text, filePath, sessionId, emptySet, null);
+
+  const map = new Map<string, TokenRecord>();
+  for (const r of result.records) {
+    map.set(r.message_id, r);
+  }
+  return map;
+}
+
 function verifySession(filePath: string, db: Database): SessionVerifyResult {
-  const sessionId = extractSessionId(filePath);
+  const sessionId = adapter.extractSessionId(filePath);
   const freshRecords = freshParseSession(filePath);
 
   const dbRows = db.getRecordsBySession(sessionId);
@@ -115,7 +61,6 @@ function verifySession(filePath: string, db: Database): SessionVerifyResult {
   let jsonlTotal = 0;
   let dbTotal = 0;
 
-  // Check JSONL records against DB
   for (const [msgId, fresh] of freshRecords) {
     const freshTokens = sumTokens(fresh);
     jsonlTotal += freshTokens;
@@ -155,7 +100,6 @@ function verifySession(filePath: string, db: Database): SessionVerifyResult {
     }
   }
 
-  // Check for extra records in DB not in JSONL
   const extraInDb: MismatchDetail[] = [];
   for (const [msgId, dbRow] of dbMap) {
     if (!freshRecords.has(msgId)) {
@@ -174,7 +118,6 @@ function verifySession(filePath: string, db: Database): SessionVerifyResult {
 
   return {
     session_id: sessionId,
-    file_path: filePath,
     jsonl_count: freshRecords.size,
     db_count: dbMap.size,
     missing_in_db: mismatched.filter(m => m.type === "missing_in_db").length,
@@ -203,10 +146,10 @@ export function runVerify(options: { detail?: boolean; session?: string }) {
   const db = new Database(DB_PATH);
 
   try {
-    const files = findAllSessionFiles();
+    const files = adapter.findSessionFiles();
 
     const filteredFiles = options.session
-      ? files.filter(f => extractSessionId(f).startsWith(options.session!))
+      ? files.filter(f => adapter.extractSessionId(f).startsWith(options.session!))
       : files;
 
     if (filteredFiles.length === 0) {
@@ -224,7 +167,7 @@ export function runVerify(options: { detail?: boolean; session?: string }) {
     let totalAttrMismatch = 0;
     let totalJsonlTokens = 0;
     let totalDbTokens = 0;
-    let problemSessions: SessionVerifyResult[] = [];
+    const problemSessions: SessionVerifyResult[] = [];
 
     for (const file of filteredFiles) {
       try {
@@ -246,7 +189,6 @@ export function runVerify(options: { detail?: boolean; session?: string }) {
       }
     }
 
-    // Summary table
     console.log(chalk.bold("Verification Summary"));
     console.log();
 
@@ -261,33 +203,27 @@ export function runVerify(options: { detail?: boolean; session?: string }) {
     console.log(summaryTable.toString());
     console.log();
 
-    // Error rates
     const errTable = new Table({
       head: [chalk.cyan("Check"), chalk.cyan("Errors"), chalk.cyan("Rate")],
       style: { head: [], border: [] },
     });
 
-    const coverageMissing = totalMissing;
-    const coverageExtra = totalExtra;
-
     errTable.push(
-      ["Coverage (missing in DB)", String(coverageMissing), pct(coverageMissing, totalJsonlMsgs)],
-      ["Coverage (extra in DB)", String(coverageExtra), pct(coverageExtra, totalDbMsgs)],
+      ["Coverage (missing in DB)", String(totalMissing), pct(totalMissing, totalJsonlMsgs)],
+      ["Coverage (extra in DB)", String(totalExtra), pct(totalExtra, totalDbMsgs)],
       ["Token mismatch", String(totalTokenMismatch), pct(totalTokenMismatch, totalJsonlMsgs)],
       ["Attribution mismatch", String(totalAttrMismatch), pct(totalAttrMismatch, totalJsonlMsgs)],
     );
     console.log(errTable.toString());
     console.log();
 
-    // Overall verdict
-    const totalErrors = coverageMissing + coverageExtra + totalTokenMismatch + totalAttrMismatch;
+    const totalErrors = totalMissing + totalExtra + totalTokenMismatch + totalAttrMismatch;
     if (totalErrors === 0) {
       console.log(chalk.green("All records match. No discrepancies found."));
     } else {
       console.log(chalk.yellow(`${totalErrors} discrepancies found in ${problemSessions.length} sessions.`));
     }
 
-    // Detail mode
     if (options.detail && problemSessions.length > 0) {
       console.log();
       console.log(chalk.bold("Mismatch Details"));
@@ -297,12 +233,7 @@ export function runVerify(options: { detail?: boolean; session?: string }) {
         console.log(chalk.white(`Session: ${session.session_id}`));
 
         const detailTable = new Table({
-          head: [
-            chalk.dim("message_id"),
-            chalk.dim("type"),
-            chalk.dim("JSONL"),
-            chalk.dim("DB"),
-          ],
+          head: [chalk.dim("message_id"), chalk.dim("type"), chalk.dim("JSONL"), chalk.dim("DB")],
           style: { head: [], border: [] },
           colWidths: [26, 22, 30, 30],
           wordWrap: true,
@@ -310,17 +241,12 @@ export function runVerify(options: { detail?: boolean; session?: string }) {
 
         for (const d of session.mismatched_details.slice(0, 20)) {
           const msgShort = d.message_id.slice(0, 22) + "...";
-          const jsonlStr = d.jsonl
-            ? `${fmtTokensShort(d.jsonl.tokens)} → ${d.jsonl.task ?? "(general)"}`
-            : "-";
-          const dbStr = d.db
-            ? `${fmtTokensShort(d.db.tokens)} → ${d.db.task ?? "(general)"}`
-            : "-";
+          const jsonlStr = d.jsonl ? `${fmtTokensShort(d.jsonl.tokens)} -> ${d.jsonl.task ?? "(general)"}` : "-";
+          const dbStr = d.db ? `${fmtTokensShort(d.db.tokens)} -> ${d.db.task ?? "(general)"}` : "-";
           detailTable.push([msgShort, d.type, jsonlStr, dbStr]);
         }
 
         console.log(detailTable.toString());
-
         if (session.mismatched_details.length > 20) {
           console.log(chalk.dim(`  ... and ${session.mismatched_details.length - 20} more`));
         }
