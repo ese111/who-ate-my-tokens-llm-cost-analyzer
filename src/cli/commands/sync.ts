@@ -1,3 +1,4 @@
+import { createInterface } from "node:readline";
 import chalk from "chalk";
 import { Database } from "../../db/schema.js";
 import { syncAdapter } from "../../parser/sync-engine.js";
@@ -9,10 +10,30 @@ const adapters: LogAdapter[] = [
   new ClaudeAdapter(),
 ];
 
-export function runSync(options: { reset?: boolean }) {
+function confirmReset(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(
+      chalk.red("All data will be deleted. Continue? (y/N) "),
+      (answer) => {
+        rl.close();
+        resolve(answer.trim().toLowerCase() === "y");
+      },
+    );
+  });
+}
+
+export async function runSync(options: { reset?: boolean; force?: boolean }) {
   const db = new Database(DB_PATH);
   try {
     if (options.reset) {
+      if (!options.force) {
+        const confirmed = await confirmReset();
+        if (!confirmed) {
+          console.log(chalk.yellow("Reset cancelled."));
+          return;
+        }
+      }
       db.resetAll();
       console.log(chalk.yellow("DB reset complete."));
     }

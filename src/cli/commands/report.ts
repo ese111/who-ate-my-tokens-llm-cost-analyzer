@@ -20,9 +20,8 @@ function parseSince(since: string): string {
   // Try as ISO date
   const parsed = new Date(since);
   if (!isNaN(parsed.getTime())) return parsed.toISOString();
-  // Default: 7 days
-  now.setDate(now.getDate() - 7);
-  return now.toISOString();
+  console.error(`Invalid --since format: "${since}". Use 7d, 2w, 3m, or ISO date.`);
+  process.exit(1);
 }
 
 function fmtNum(n: number): string {

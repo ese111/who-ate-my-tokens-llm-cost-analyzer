@@ -16,6 +16,7 @@ program
   .command("sync")
   .description("Parse Claude Code JSONL logs and sync to local DB")
   .option("--reset", "Reset DB before syncing")
+  .option("-y, --force", "Skip confirmation prompt for --reset")
   .action(runSync);
 
 program
