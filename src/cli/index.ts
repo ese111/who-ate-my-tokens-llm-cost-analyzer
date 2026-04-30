@@ -8,7 +8,7 @@ import { runVerify } from "./commands/verify.js";
 const program = new Command();
 
 program
-  .name("skills-token")
+  .name("who-ate-my-tokens")
   .description("Track Claude Code skill/task token usage")
   .version("0.1.0");
 

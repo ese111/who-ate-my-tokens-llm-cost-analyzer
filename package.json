@@ -1,11 +1,14 @@
 {
-  "name": "skills-token",
+  "name": "@ese111/who-ate-my-tokens",
   "version": "0.1.0",
   "description": "Track Claude Code skill/task token usage from local JSONL logs",
   "type": "module",
   "bin": {
-    "skills-token": "./dist/cli/index.js"
+    "who-ate-my-tokens": "dist/cli/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli/index.ts",
