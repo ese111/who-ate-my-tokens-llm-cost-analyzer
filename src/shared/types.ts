@@ -62,11 +62,7 @@ export interface ParseState {
   last_mtime_ms: number;
 }
 
-export interface AdapterState {
-  active_skill: string | null;
-  active_prompt_id: string | null;
-  active_trigger: TokenRecord["trigger_type"];
-}
+export type AdapterState = Record<string, string | number | null>;
 
 export interface ParsedSession {
   records: TokenRecord[];
@@ -75,6 +71,7 @@ export interface ParsedSession {
 
 export interface LogAdapter {
   readonly provider: string;
+  readonly readMode: "incremental" | "full";
   findSessionFiles(): string[];
   extractSessionId(filePath: string): string;
   parseContent(

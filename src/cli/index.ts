@@ -9,12 +9,12 @@ const program = new Command();
 
 program
   .name("who-ate-my-tokens")
-  .description("Track Claude Code skill/task token usage")
+  .description("Track AI tool token usage (Claude Code, Codex, Gemini)")
   .version("0.1.0");
 
 program
   .command("sync")
-  .description("Parse Claude Code JSONL logs and sync to local DB")
+  .description("Parse AI tool logs (Claude, Codex, Gemini) and sync to local DB")
   .option("--reset", "Reset DB before syncing")
   .option("-y, --force", "Skip confirmation prompt for --reset")
   .action(runSync);
@@ -23,7 +23,8 @@ program
   .command("report")
   .description("Show token usage report")
   .option("-s, --since <period>", "Time period (e.g. 7d, 30d, 1w, 3m)", "30d")
-  .option("-b, --by <grouping>", "Group by: task, model", "task")
+  .option("-b, --by <grouping>", "Group by: task, model, provider", "task")
+  .option("-p, --provider <name>", "Filter by provider (claude, codex, gemini)")
   .action(runReport);
 
 program

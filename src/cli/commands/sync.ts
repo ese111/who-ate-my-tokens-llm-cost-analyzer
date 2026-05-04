@@ -3,11 +3,15 @@ import chalk from "chalk";
 import { Database } from "../../db/schema.js";
 import { syncAdapter } from "../../parser/sync-engine.js";
 import { ClaudeAdapter } from "../../adapters/claude.js";
+import { CodexAdapter } from "../../adapters/codex.js";
+import { GeminiAdapter } from "../../adapters/gemini.js";
 import { DB_PATH } from "../../shared/config.js";
 import type { LogAdapter } from "../../shared/types.js";
 
 const adapters: LogAdapter[] = [
   new ClaudeAdapter(),
+  new CodexAdapter(),
+  new GeminiAdapter(),
 ];
 
 function confirmReset(): Promise<boolean> {

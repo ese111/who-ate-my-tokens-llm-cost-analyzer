@@ -1,7 +1,7 @@
 {
   "name": "@ese111/who-ate-my-tokens",
   "version": "0.1.0",
-  "description": "Track Claude Code skill/task token usage from local JSONL logs",
+  "description": "Track AI tool token usage across Claude Code, Codex, and Gemini from local logs",
   "type": "module",
   "bin": {
     "who-ate-my-tokens": "dist/cli/index.js"

@@ -1,7 +1,7 @@
 import BetterSqlite3 from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { TokenRecord, ParseState, TaskUsageRow } from "../shared/types.js";
+import type { TokenRecord, ParseState, TaskUsageRow, AdapterState } from "../shared/types.js";
 
 export class Database {
   private db: BetterSqlite3.Database;
@@ -13,6 +13,17 @@ export class Database {
         "ALTER TABLE token_records ADD COLUMN request_id TEXT",
         "ALTER TABLE token_records ADD COLUMN git_branch TEXT",
         "ALTER TABLE token_records ADD COLUMN raw_source TEXT",
+      ],
+    },
+    {
+      version: 2,
+      sql: [
+        "ALTER TABLE parse_state ADD COLUMN adapter_state TEXT",
+        `UPDATE parse_state SET adapter_state = json_object(
+          'active_skill', active_skill,
+          'active_prompt_id', active_prompt_id,
+          'active_trigger', COALESCE(active_trigger, 'none')
+        )`,
       ],
     },
   ];
@@ -84,6 +95,7 @@ export class Database {
       CREATE INDEX IF NOT EXISTS idx_session ON token_records(session_id);
       CREATE INDEX IF NOT EXISTS idx_model ON token_records(model);
       CREATE INDEX IF NOT EXISTS idx_timestamp ON token_records(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_provider_timestamp ON token_records(provider, timestamp);
     `);
   }
 
@@ -111,20 +123,18 @@ export class Database {
       .get(sourceKey) as ParseState | null;
   }
 
-  updateParseState(state: ParseState & { active_skill?: string | null; active_prompt_id?: string | null; active_trigger?: string | null }) {
+  updateParseState(state: ParseState & { adapter_state?: AdapterState }) {
     this.db.prepare(`
       INSERT OR REPLACE INTO parse_state
-        (source_key, last_byte_offset, last_file_size, last_mtime_ms, last_parsed_at, active_skill, active_prompt_id, active_trigger)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (source_key, last_byte_offset, last_file_size, last_mtime_ms, last_parsed_at, adapter_state)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       state.source_key,
       state.last_byte_offset,
       state.last_file_size,
       state.last_mtime_ms,
       new Date().toISOString(),
-      state.active_skill ?? null,
-      state.active_prompt_id ?? null,
-      state.active_trigger ?? "none",
+      state.adapter_state ? JSON.stringify(state.adapter_state) : null,
     );
   }
 
@@ -134,27 +144,18 @@ export class Database {
     return new Set(rows.map(r => r.message_id));
   }
 
-  getActiveSkill(sourceKey: string): string | null {
-    const row = this.db.prepare("SELECT active_skill FROM parse_state WHERE source_key = ?")
-      .get(sourceKey) as { active_skill: string | null } | undefined;
-    return row?.active_skill ?? null;
+  getAdapterState(sourceKey: string): AdapterState | null {
+    const row = this.db.prepare("SELECT adapter_state FROM parse_state WHERE source_key = ?")
+      .get(sourceKey) as { adapter_state: string | null } | undefined;
+    if (!row?.adapter_state) return null;
+    try { return JSON.parse(row.adapter_state); } catch { return null; }
   }
 
-  getActivePromptId(sourceKey: string): string | null {
-    const row = this.db.prepare("SELECT active_prompt_id FROM parse_state WHERE source_key = ?")
-      .get(sourceKey) as { active_prompt_id: string | null } | undefined;
-    return row?.active_prompt_id ?? null;
-  }
+  queryByTask(sinceDate: string, provider?: string): TaskUsageRow[] {
+    const providerFilter = provider ? "AND provider = ?" : "";
+    const params: unknown[] = [sinceDate];
+    if (provider) params.push(provider);
 
-  getActiveTrigger(sourceKey: string): TokenRecord["trigger_type"] {
-    const row = this.db.prepare("SELECT active_trigger FROM parse_state WHERE source_key = ?")
-      .get(sourceKey) as { active_trigger: string | null } | undefined;
-    const val = row?.active_trigger;
-    if (val === "user_slash" || val === "model_tool_call") return val;
-    return "none";
-  }
-
-  queryByTask(sinceDate: string): TaskUsageRow[] {
     const rows = this.db.prepare(`
       SELECT
         COALESCE(task_name, '(general)') as task_name,
@@ -165,12 +166,12 @@ export class Database {
         SUM(reasoning_tokens) as total_reasoning,
         SUM(input_tokens + output_tokens + cache_read_tokens + cache_create_tokens + reasoning_tokens) as total_tokens
       FROM token_records
-      WHERE timestamp >= ? AND provider = 'claude'
+      WHERE timestamp >= ? ${providerFilter}
       GROUP BY COALESCE(task_name, '(general)')
       ORDER BY total_tokens DESC
-    `).all(sinceDate) as { task_name: string; total_input: number; total_output: number; total_cache_read: number; total_cache_create: number; total_reasoning: number; total_tokens: number }[];
+    `).all(...params) as { task_name: string; total_input: number; total_output: number; total_cache_read: number; total_cache_create: number; total_reasoning: number; total_tokens: number }[];
 
-    const runCounts = this.countRuns(sinceDate);
+    const runCounts = this.countRuns(sinceDate, provider);
 
     return rows.map(r => {
       const runs = runCounts.get(r.task_name) ?? 0;
@@ -183,7 +184,11 @@ export class Database {
     });
   }
 
-  private countRuns(sinceDate: string): Map<string, number> {
+  private countRuns(sinceDate: string, provider?: string): Map<string, number> {
+    const providerFilter = provider ? "AND provider = ?" : "";
+    const params: unknown[] = [sinceDate];
+    if (provider) params.push(provider);
+
     const rows = this.db.prepare(`
       SELECT task_name, COUNT(*) as run_count
       FROM (
@@ -193,19 +198,24 @@ export class Database {
             PARTITION BY session_id ORDER BY timestamp, id
           ) as prev_task
         FROM token_records
-        WHERE timestamp >= ? AND provider = 'claude'
+        WHERE timestamp >= ? ${providerFilter}
       )
       WHERE task_name != prev_task OR prev_task IS NULL
       GROUP BY task_name
-    `).all(sinceDate) as { task_name: string; run_count: number }[];
+    `).all(...params) as { task_name: string; run_count: number }[];
 
     return new Map(rows.map(r => [r.task_name, r.run_count]));
   }
 
-  queryByModel(sinceDate: string) {
+  queryByModel(sinceDate: string, provider?: string) {
+    const providerFilter = provider ? "AND provider = ?" : "";
+    const params: unknown[] = [sinceDate];
+    if (provider) params.push(provider);
+
     return this.db.prepare(`
       SELECT
         model,
+        provider,
         COUNT(*) as message_count,
         SUM(input_tokens) as total_input,
         SUM(output_tokens) as total_output,
@@ -214,13 +224,41 @@ export class Database {
         SUM(reasoning_tokens) as total_reasoning,
         SUM(input_tokens + output_tokens + cache_read_tokens + cache_create_tokens + reasoning_tokens) as total_tokens
       FROM token_records
-      WHERE timestamp >= ? AND provider = 'claude'
-      GROUP BY model
+      WHERE timestamp >= ? ${providerFilter}
+      GROUP BY model, provider
       ORDER BY total_tokens DESC
-    `).all(sinceDate);
+    `).all(...params);
   }
 
-  getTotalStats(sinceDate: string) {
+  queryByProvider(sinceDate: string) {
+    return this.db.prepare(`
+      SELECT
+        provider,
+        COUNT(DISTINCT session_id) as sessions,
+        COUNT(*) as messages,
+        SUM(input_tokens) as total_input,
+        SUM(output_tokens) as total_output,
+        SUM(cache_read_tokens) as total_cache_read,
+        SUM(cache_create_tokens) as total_cache_create,
+        SUM(reasoning_tokens) as total_reasoning,
+        SUM(input_tokens + output_tokens + cache_read_tokens + cache_create_tokens + reasoning_tokens) as total_tokens
+      FROM token_records
+      WHERE timestamp >= ?
+      GROUP BY provider
+      ORDER BY total_tokens DESC
+    `).all(sinceDate) as Array<{
+      provider: string; sessions: number; messages: number;
+      total_input: number; total_output: number;
+      total_cache_read: number; total_cache_create: number;
+      total_reasoning: number; total_tokens: number;
+    }>;
+  }
+
+  getTotalStats(sinceDate: string, provider?: string) {
+    const providerFilter = provider ? "AND provider = ?" : "";
+    const params: unknown[] = [sinceDate];
+    if (provider) params.push(provider);
+
     return this.db.prepare(`
       SELECT
         COUNT(DISTINCT session_id) as sessions,
@@ -231,8 +269,8 @@ export class Database {
         SUM(cache_create_tokens) as total_cache_create,
         SUM(input_tokens + output_tokens + cache_read_tokens + cache_create_tokens + reasoning_tokens) as total_tokens
       FROM token_records
-      WHERE timestamp >= ? AND provider = 'claude'
-    `).get(sinceDate) as Record<string, number>;
+      WHERE timestamp >= ? ${providerFilter}
+    `).get(...params) as Record<string, number>;
   }
 
   getRecordsBySession(sessionId: string) {

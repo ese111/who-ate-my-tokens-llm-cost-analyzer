@@ -10,6 +10,7 @@ const COMMAND_NAME_RE = /<command-name>\/([^<]+)<\/command-name>/;
 
 export class ClaudeAdapter implements LogAdapter {
   readonly provider = "claude";
+  readonly readMode = "incremental" as const;
 
   findSessionFiles(): string[] {
     return globSync(join(CLAUDE_PROJECTS_DIR, "*", "*.jsonl"));
@@ -28,9 +29,9 @@ export class ClaudeAdapter implements LogAdapter {
   ): ParsedSession {
     const lines = text.split("\n").filter(l => l.trim());
 
-    let activeSkill = resumeState?.active_skill ?? null;
-    let activeTrigger: TokenRecord["trigger_type"] = resumeState?.active_trigger ?? "none";
-    let activePromptId = resumeState?.active_prompt_id ?? null;
+    let activeSkill = (resumeState?.active_skill as string | null) ?? null;
+    let activeTrigger: TokenRecord["trigger_type"] = (resumeState?.active_trigger as TokenRecord["trigger_type"]) ?? "none";
+    let activePromptId = (resumeState?.active_prompt_id as string | null) ?? null;
 
     let projectPath = this.extractProjectPath(filePath);
     for (const line of lines) {

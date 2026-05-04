@@ -29,13 +29,13 @@ function syncFile(adapter: LogAdapter, filePath: string, db: Database): number {
     return 0;
   }
 
-  const startOffset = parseState?.last_byte_offset ?? 0;
+  const useIncremental = adapter.readMode === "incremental";
+  const startOffset = useIncremental ? (parseState?.last_byte_offset ?? 0) : 0;
 
   let buf: Buffer;
   let fileSize: number;
 
-  if (startOffset > 0) {
-    // 증분 파싱: startOffset부터 끝까지만 읽기
+  if (useIncremental && startOffset > 0) {
     const fd = openSync(filePath, "r");
     try {
       fileSize = stat.size;
@@ -55,19 +55,8 @@ function syncFile(adapter: LogAdapter, filePath: string, db: Database): number {
       closeSync(fd);
     }
   } else {
-    // 전체 파싱: 기존 방식 유지
     buf = readFileSync(filePath);
     fileSize = buf.length;
-
-    if (startOffset >= fileSize) {
-      db.updateParseState({
-        source_key: sourceKey,
-        last_byte_offset: fileSize,
-        last_file_size: stat.size,
-        last_mtime_ms: Math.floor(stat.mtimeMs),
-      });
-      return 0;
-    }
   }
 
   const text = buf.toString("utf-8");
@@ -76,7 +65,7 @@ function syncFile(adapter: LogAdapter, filePath: string, db: Database): number {
   const existingIds = db.getExistingMessageIds(sessionId);
 
   const resumeState: AdapterState | null = parseState
-    ? { active_skill: db.getActiveSkill(sourceKey), active_prompt_id: db.getActivePromptId(sourceKey), active_trigger: db.getActiveTrigger(sourceKey) }
+    ? db.getAdapterState(sourceKey)
     : null;
 
   const result = adapter.parseContent(text, filePath, sessionId, existingIds, resumeState);
@@ -90,9 +79,7 @@ function syncFile(adapter: LogAdapter, filePath: string, db: Database): number {
     last_byte_offset: fileSize,
     last_file_size: stat.size,
     last_mtime_ms: Math.floor(stat.mtimeMs),
-    active_skill: result.state.active_skill,
-    active_prompt_id: result.state.active_prompt_id,
-    active_trigger: result.state.active_trigger,
+    adapter_state: result.state,
   });
 
   return result.records.length;
