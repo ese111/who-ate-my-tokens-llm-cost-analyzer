@@ -95,3 +95,48 @@ export interface TaskUsageRow {
   invocation_count: number;
   avg_tokens_per_run: number;
 }
+
+export interface ModelUsageRow {
+  model: string;
+  provider: string;
+  message_count: number;
+  total_input: number;
+  total_output: number;
+  total_cache_read: number;
+  total_cache_create: number;
+  total_reasoning: number;
+  total_tokens: number;
+}
+
+export interface ProviderUsageRow {
+  provider: string;
+  sessions: number;
+  messages: number;
+  total_input: number;
+  total_output: number;
+  total_cache_read: number;
+  total_cache_create: number;
+  total_reasoning: number;
+  total_tokens: number;
+}
+
+export interface TotalStats {
+  sessions: number;
+  messages: number;
+  total_input: number;
+  total_output: number;
+  total_cache_read: number;
+  total_cache_create: number;
+  total_tokens: number;
+}
+
+export interface SessionRecordRow {
+  message_id: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_create_tokens: number;
+  reasoning_tokens: number;
+  task_name: string | null;
+  trigger_type: string;
+}

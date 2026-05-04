@@ -1,7 +1,7 @@
 import BetterSqlite3 from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { TokenRecord, ParseState, TaskUsageRow, AdapterState } from "../shared/types.js";
+import type { TokenRecord, ParseState, TaskUsageRow, AdapterState, ModelUsageRow, ProviderUsageRow, TotalStats, SessionRecordRow } from "../shared/types.js";
 
 export class Database {
   private db: BetterSqlite3.Database;
@@ -169,7 +169,7 @@ export class Database {
       WHERE timestamp >= ? ${providerFilter}
       GROUP BY COALESCE(task_name, '(general)')
       ORDER BY total_tokens DESC
-    `).all(...params) as { task_name: string; total_input: number; total_output: number; total_cache_read: number; total_cache_create: number; total_reasoning: number; total_tokens: number }[];
+    `).all(...params) as Omit<TaskUsageRow, "runs" | "invocation_count" | "avg_tokens_per_run">[];
 
     const runCounts = this.countRuns(sinceDate, provider);
 
@@ -207,7 +207,7 @@ export class Database {
     return new Map(rows.map(r => [r.task_name, r.run_count]));
   }
 
-  queryByModel(sinceDate: string, provider?: string) {
+  queryByModel(sinceDate: string, provider?: string): ModelUsageRow[] {
     const providerFilter = provider ? "AND provider = ?" : "";
     const params: unknown[] = [sinceDate];
     if (provider) params.push(provider);
@@ -227,7 +227,7 @@ export class Database {
       WHERE timestamp >= ? ${providerFilter}
       GROUP BY model, provider
       ORDER BY total_tokens DESC
-    `).all(...params);
+    `).all(...params) as ModelUsageRow[];
   }
 
   queryByProvider(sinceDate: string) {
@@ -246,12 +246,7 @@ export class Database {
       WHERE timestamp >= ?
       GROUP BY provider
       ORDER BY total_tokens DESC
-    `).all(sinceDate) as Array<{
-      provider: string; sessions: number; messages: number;
-      total_input: number; total_output: number;
-      total_cache_read: number; total_cache_create: number;
-      total_reasoning: number; total_tokens: number;
-    }>;
+    `).all(sinceDate) as ProviderUsageRow[];
   }
 
   getTotalStats(sinceDate: string, provider?: string) {
@@ -270,7 +265,7 @@ export class Database {
         SUM(input_tokens + output_tokens + cache_read_tokens + cache_create_tokens + reasoning_tokens) as total_tokens
       FROM token_records
       WHERE timestamp >= ? ${providerFilter}
-    `).get(...params) as Record<string, number>;
+    `).get(...params) as TotalStats;
   }
 
   getRecordsBySession(sessionId: string) {
@@ -279,16 +274,7 @@ export class Database {
              cache_create_tokens, reasoning_tokens, task_name, trigger_type
       FROM token_records
       WHERE session_id = ?
-    `).all(sessionId) as {
-      message_id: string;
-      input_tokens: number;
-      output_tokens: number;
-      cache_read_tokens: number;
-      cache_create_tokens: number;
-      reasoning_tokens: number;
-      task_name: string | null;
-      trigger_type: string;
-    }[];
+    `).all(sessionId) as SessionRecordRow[];
   }
 
   resetAll() {

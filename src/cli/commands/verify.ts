@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { Database } from "../../db/schema.js";
 import { DB_PATH } from "../../shared/config.js";
 import { ClaudeAdapter } from "../../adapters/claude.js";
+import { fmtTokensShort } from "../../shared/format.js";
 import type { TokenRecord } from "../../shared/types.js";
 
 const adapter = new ClaudeAdapter();
@@ -75,7 +76,7 @@ function verifySession(filePath: string, db: Database): SessionVerifyResult {
       continue;
     }
 
-    const dbTokens = dbRow.input_tokens + dbRow.output_tokens + dbRow.cache_read_tokens + dbRow.cache_create_tokens;
+    const dbTokens = sumTokens(dbRow);
 
     if (freshTokens !== dbTokens) {
       tokenMismatches++;
@@ -103,7 +104,7 @@ function verifySession(filePath: string, db: Database): SessionVerifyResult {
   const extraInDb: MismatchDetail[] = [];
   for (const [msgId, dbRow] of dbMap) {
     if (!freshRecords.has(msgId)) {
-      const dbTokens = dbRow.input_tokens + dbRow.output_tokens + dbRow.cache_read_tokens + dbRow.cache_create_tokens;
+      const dbTokens = sumTokens(dbRow);
       extraInDb.push({
         message_id: msgId,
         type: "extra_in_db",
@@ -113,7 +114,7 @@ function verifySession(filePath: string, db: Database): SessionVerifyResult {
   }
 
   for (const row of dbMap.values()) {
-    dbTotal += row.input_tokens + row.output_tokens + row.cache_read_tokens + row.cache_create_tokens;
+    dbTotal += sumTokens(row);
   }
 
   return {
@@ -133,13 +134,6 @@ function verifySession(filePath: string, db: Database): SessionVerifyResult {
 function pct(n: number, total: number): string {
   if (total === 0) return "0.0%";
   return (n / total * 100).toFixed(1) + "%";
-}
-
-function fmtTokensShort(n: number): string {
-  if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
-  return n.toString();
 }
 
 export function runVerify(options: { detail?: boolean; session?: string }) {

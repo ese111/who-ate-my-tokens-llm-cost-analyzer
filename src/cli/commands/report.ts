@@ -3,6 +3,7 @@ import Table from "cli-table3";
 import { Database } from "../../db/schema.js";
 import { DB_PATH } from "../../shared/config.js";
 import { estimateCost } from "../../shared/pricing.js";
+import { fmtNum, fmtTokensShort } from "../../shared/format.js";
 
 function parseSince(since: string): string {
   const now = new Date();
@@ -23,17 +24,6 @@ function parseSince(since: string): string {
   if (!isNaN(parsed.getTime())) return parsed.toISOString();
   console.error(`Invalid --since format: "${since}". Use 7d, 2w, 3m, or ISO date.`);
   process.exit(1);
-}
-
-function fmtNum(n: number): string {
-  return n.toLocaleString("en-US");
-}
-
-function fmtTokensShort(n: number): string {
-  if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
-  return n.toString();
 }
 
 export function runReport(options: { since: string; by: string; provider?: string }) {
@@ -120,16 +110,7 @@ function reportByTask(db: Database, sinceDate: string, sinceLabel: string, provi
 }
 
 function reportByModel(db: Database, sinceDate: string, sinceLabel: string, provider?: string) {
-  const rows = db.queryByModel(sinceDate, provider) as Array<{
-    model: string;
-    provider: string;
-    message_count: number;
-    total_input: number;
-    total_output: number;
-    total_cache_read: number;
-    total_cache_create: number;
-    total_tokens: number;
-  }>;
+  const rows = db.queryByModel(sinceDate, provider);
 
   if (rows.length === 0) {
     console.log(chalk.yellow("No data found. Run 'sync' first."));
