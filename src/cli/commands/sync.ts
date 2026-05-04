@@ -27,7 +27,19 @@ function confirmReset(): Promise<boolean> {
   });
 }
 
-export async function runSync(options: { reset?: boolean; yes?: boolean }) {
+type LogLevel = "quiet" | "normal" | "verbose";
+
+function createLogger(level: LogLevel) {
+  return {
+    info: (msg: string) => { if (level !== "quiet") console.error(msg); },
+    verbose: (msg: string) => { if (level === "verbose") console.error(msg); },
+    result: (msg: string) => { console.error(msg); },
+  };
+}
+
+export async function runSync(options: { reset?: boolean; yes?: boolean; quiet?: boolean; verbose?: boolean }) {
+  const level: LogLevel = options.quiet ? "quiet" : options.verbose ? "verbose" : "normal";
+  const log = createLogger(level);
   const db = new Database(DB_PATH);
   try {
     if (options.reset) {
@@ -38,12 +50,12 @@ export async function runSync(options: { reset?: boolean; yes?: boolean }) {
         }
         const confirmed = await confirmReset();
         if (!confirmed) {
-          console.error(chalk.yellow("Reset cancelled."));
+          log.result(chalk.yellow("Reset cancelled."));
           return;
         }
       }
       db.resetAll();
-      console.error(chalk.yellow("DB reset complete."));
+      log.info(chalk.yellow("DB reset complete."));
     }
 
     let grandTotal = 0;
@@ -51,18 +63,22 @@ export async function runSync(options: { reset?: boolean; yes?: boolean }) {
 
     for (const adapter of adapters) {
       const files = adapter.findSessionFiles();
-      console.error(chalk.dim(`[${adapter.provider}] Found ${files.length} session files`));
+      log.info(chalk.dim(`[${adapter.provider}] Found ${files.length} session files`));
 
       const { newRecords, parsedFiles } = syncAdapter(adapter, db);
       grandTotal += newRecords;
       grandParsed += parsedFiles;
 
       if (newRecords > 0) {
-        console.error(chalk.dim(`[${adapter.provider}] ${newRecords} new records from ${parsedFiles} files`));
+        log.info(chalk.dim(`[${adapter.provider}] ${newRecords} new records from ${parsedFiles} files`));
       }
+      log.verbose(chalk.dim(`[${adapter.provider}] Parsed ${parsedFiles}/${files.length} files`));
     }
 
-    console.error(chalk.green(`Sync complete: ${grandTotal} new records from ${grandParsed} files`));
+    log.result(chalk.green(`Sync complete: ${grandTotal} new records from ${grandParsed} files`));
+    if (grandTotal > 0 && level !== "quiet") {
+      log.info(chalk.dim("Run 'who-ate-my-tokens report' to see results."));
+    }
   } finally {
     db.close();
   }
