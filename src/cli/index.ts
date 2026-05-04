@@ -1,22 +1,26 @@
 #!/usr/bin/env node
 
+import { createRequire } from "node:module";
 import { Command } from "commander";
 import { runSync } from "./commands/sync.js";
 import { runReport } from "./commands/report.js";
 import { runVerify } from "./commands/verify.js";
+
+const require = createRequire(import.meta.url);
+const { version } = require("../../package.json");
 
 const program = new Command();
 
 program
   .name("who-ate-my-tokens")
   .description("Track AI tool token usage (Claude Code, Codex, Gemini)")
-  .version("0.1.0");
+  .version(version);
 
 program
   .command("sync")
   .description("Parse AI tool logs (Claude, Codex, Gemini) and sync to local DB")
   .option("--reset", "Reset DB before syncing")
-  .option("-y, --force", "Skip confirmation prompt for --reset")
+  .option("-y, --yes", "Skip confirmation prompt for --reset")
   .action(runSync);
 
 program
@@ -25,6 +29,7 @@ program
   .option("-s, --since <period>", "Time period (e.g. 7d, 30d, 1w, 3m)", "30d")
   .option("-b, --by <grouping>", "Group by: task, model, provider", "task")
   .option("-p, --provider <name>", "Filter by provider (claude, codex, gemini)")
+  .option("--json", "Output as JSON")
   .action(runReport);
 
 program

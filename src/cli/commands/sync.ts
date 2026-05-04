@@ -27,19 +27,23 @@ function confirmReset(): Promise<boolean> {
   });
 }
 
-export async function runSync(options: { reset?: boolean; force?: boolean }) {
+export async function runSync(options: { reset?: boolean; yes?: boolean }) {
   const db = new Database(DB_PATH);
   try {
     if (options.reset) {
-      if (!options.force) {
+      if (!options.yes) {
+        if (!process.stdin.isTTY) {
+          console.error(chalk.red("Cannot prompt in non-interactive mode. Use --yes to skip confirmation."));
+          process.exit(1);
+        }
         const confirmed = await confirmReset();
         if (!confirmed) {
-          console.log(chalk.yellow("Reset cancelled."));
+          console.error(chalk.yellow("Reset cancelled."));
           return;
         }
       }
       db.resetAll();
-      console.log(chalk.yellow("DB reset complete."));
+      console.error(chalk.yellow("DB reset complete."));
     }
 
     let grandTotal = 0;
@@ -47,18 +51,18 @@ export async function runSync(options: { reset?: boolean; force?: boolean }) {
 
     for (const adapter of adapters) {
       const files = adapter.findSessionFiles();
-      console.log(chalk.dim(`[${adapter.provider}] Found ${files.length} session files`));
+      console.error(chalk.dim(`[${adapter.provider}] Found ${files.length} session files`));
 
       const { newRecords, parsedFiles } = syncAdapter(adapter, db);
       grandTotal += newRecords;
       grandParsed += parsedFiles;
 
       if (newRecords > 0) {
-        console.log(chalk.dim(`[${adapter.provider}] ${newRecords} new records from ${parsedFiles} files`));
+        console.error(chalk.dim(`[${adapter.provider}] ${newRecords} new records from ${parsedFiles} files`));
       }
     }
 
-    console.log(chalk.green(`Sync complete: ${grandTotal} new records from ${grandParsed} files`));
+    console.error(chalk.green(`Sync complete: ${grandTotal} new records from ${grandParsed} files`));
   } finally {
     db.close();
   }

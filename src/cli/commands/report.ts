@@ -26,12 +26,23 @@ function parseSince(since: string): string {
   process.exit(1);
 }
 
-export function runReport(options: { since: string; by: string; provider?: string }) {
+export function runReport(options: { since: string; by: string; provider?: string; json?: boolean }) {
   const db = new Database(DB_PATH);
   try {
     const sinceDate = parseSince(options.since);
     const sinceLabel = new Date(sinceDate).toLocaleDateString("ko-KR");
     const provider = options.provider;
+    const validGroupings = ["task", "skill", "model", "provider"];
+
+    if (!validGroupings.includes(options.by)) {
+      console.error(`Invalid --by value: "${options.by}". Use: ${validGroupings.join(", ")}`);
+      process.exit(1);
+    }
+
+    if (options.json) {
+      reportJson(db, sinceDate, options.by, provider);
+      return;
+    }
 
     if (options.by === "task" || options.by === "skill") {
       reportByTask(db, sinceDate, sinceLabel, provider);
@@ -39,12 +50,22 @@ export function runReport(options: { since: string; by: string; provider?: strin
       reportByModel(db, sinceDate, sinceLabel, provider);
     } else if (options.by === "provider") {
       reportByProvider(db, sinceDate, sinceLabel);
-    } else {
-      reportByTask(db, sinceDate, sinceLabel, provider);
     }
   } finally {
     db.close();
   }
+}
+
+function reportJson(db: Database, sinceDate: string, by: string, provider?: string) {
+  let data: unknown;
+  if (by === "task" || by === "skill") {
+    data = db.queryByTask(sinceDate, provider);
+  } else if (by === "model") {
+    data = db.queryByModel(sinceDate, provider);
+  } else {
+    data = db.queryByProvider(sinceDate);
+  }
+  console.log(JSON.stringify(data, null, 2));
 }
 
 function reportByTask(db: Database, sinceDate: string, sinceLabel: string, provider?: string) {
@@ -52,7 +73,7 @@ function reportByTask(db: Database, sinceDate: string, sinceLabel: string, provi
   const rows = db.queryByTask(sinceDate, provider);
 
   if (rows.length === 0) {
-    console.log(chalk.yellow("No data found. Run 'skills-token sync' first."));
+    console.log(chalk.yellow("No data found. Run 'who-ate-my-tokens sync' first."));
     return;
   }
 
