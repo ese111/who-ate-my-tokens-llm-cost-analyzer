@@ -34,12 +34,16 @@ who-ate-my-tokens report
 who-ate-my-tokens sync
 who-ate-my-tokens sync --reset        # DB 초기화 후 전체 재파싱
 who-ate-my-tokens sync --reset -y     # 확인 없이 바로 실행
+who-ate-my-tokens sync -q             # 최종 결과만 출력
+who-ate-my-tokens sync -v             # 상세 진행 상황 표시
 ```
 
 | 옵션 | 설명 |
 |------|------|
 | `--reset` | DB를 초기화하고 전체 재파싱 (확인 프롬프트 표시) |
 | `-y, --yes` | `--reset`과 함께 사용. 확인 없이 바로 실행 |
+| `-q, --quiet` | 최종 결과만 출력 |
+| `-v, --verbose` | 상세 진행 상황 표시 |
 
 ### `report` — 토큰 사용량 리포트
 
@@ -50,7 +54,7 @@ who-ate-my-tokens report [options]
 | 옵션 | 기본값 | 설명 |
 |------|--------|------|
 | `-s, --since <period>` | `30d` | 조회 기간 |
-| `-b, --by <grouping>` | `task` | 그룹 기준: `task`, `model`, `provider` |
+| `-b, --by <grouping>` | `task` | 그룹 기준: `task`, `skill`, `model`, `provider` |
 | `-p, --provider <name>` | 전체 | 프로바이더 필터: `claude`, `codex`, `gemini` |
 | `--json` | - | JSON 형식으로 출력 |
 
@@ -96,6 +100,19 @@ who-ate-my-tokens verify --session abc123      # 특정 세션만
 |------|------|
 | `-d, --detail` | 세션별 불일치 상세 내역 표시 |
 | `-s, --session <id>` | 특정 세션만 검증 (prefix match) |
+
+### `update` — 자동 업데이트
+
+최신 버전을 확인하고 업데이트합니다.
+
+```bash
+who-ate-my-tokens update              # 최신 버전으로 업데이트
+who-ate-my-tokens update --check      # 업데이트 확인만 (설치하지 않음)
+```
+
+| 옵션 | 설명 |
+|------|------|
+| `-c, --check` | 새 버전 유무만 확인하고 설치하지 않음 |
 
 ## 리포트 예시
 
