@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { runSync } from "./commands/sync.js";
 import { runReport } from "./commands/report.js";
 import { runVerify } from "./commands/verify.js";
+import { runUpdate } from "./commands/update.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json");
@@ -56,5 +57,15 @@ Examples:
   $ who-ate-my-tokens verify --detail
   $ who-ate-my-tokens verify --session abc123`)
   .action(runVerify);
+
+program
+  .command("update")
+  .description("Update to the latest version")
+  .option("-c, --check", "Only check for updates, don't install")
+  .addHelpText("after", `
+Examples:
+  $ who-ate-my-tokens update
+  $ who-ate-my-tokens update --check`)
+  .action(runUpdate);
 
 program.parse();
