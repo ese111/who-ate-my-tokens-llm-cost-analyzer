@@ -1,6 +1,6 @@
 {
   "name": "@ese111/who-ate-my-tokens",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Track AI tool token usage across Claude Code, Codex, and Gemini from local logs",
   "type": "module",
   "bin": {
