@@ -26,7 +26,7 @@ function parseSince(since: string): string {
   process.exit(1);
 }
 
-export function runReport(options: { since: string; by: string; provider?: string; json?: boolean }) {
+export function runReport(options: { since: string; by: string; provider?: string; json?: boolean; trend?: boolean }) {
   const db = new Database(DB_PATH);
   try {
     const sinceDate = parseSince(options.since);
@@ -41,6 +41,11 @@ export function runReport(options: { since: string; by: string; provider?: strin
 
     if (options.json) {
       reportJson(db, sinceDate, options.by, provider);
+      return;
+    }
+
+    if (options.trend) {
+      reportTrend(db, sinceDate, sinceLabel, provider);
       return;
     }
 
@@ -83,46 +88,55 @@ function reportByTask(db: Database, sinceDate: string, sinceLabel: string, provi
   console.log(chalk.dim(`${stats.sessions} sessions, ${stats.messages} API calls`));
   console.log();
 
+  const grandTotal = rows.reduce((sum, r) => sum + r.total_tokens, 0);
+
   const table = new Table({
     head: [
       chalk.cyan("Task"),
       chalk.cyan("Runs"),
+      chalk.cyan("Total"),
+      chalk.cyan("Share"),
+      chalk.cyan("Avg/Run"),
+      chalk.cyan("Cache%"),
       chalk.cyan("Input"),
       chalk.cyan("Output"),
       chalk.cyan("Cache Read"),
       chalk.cyan("Cache Create"),
-      chalk.cyan("Total"),
-      chalk.cyan("Avg/Run"),
     ],
-    colAligns: ["left", "right", "right", "right", "right", "right", "right", "right"],
+    colAligns: ["left", "right", "right", "right", "right", "right", "right", "right", "right", "right"],
     style: { head: [], border: [] },
   });
 
-  let grandTotal = 0;
-
   for (const row of rows) {
     const total = row.total_tokens;
-    grandTotal += total;
+    const share = grandTotal > 0 ? (total / grandTotal * 100) : 0;
+    const cachePool = row.total_input + row.total_cache_read;
+    const cacheHit = cachePool > 0 ? (row.total_cache_read / cachePool * 100) : 0;
+
     table.push([
       row.task_name === "(general)" ? chalk.dim("(general)") : chalk.white(row.task_name),
       String(row.runs),
+      chalk.bold(fmtTokensShort(total)),
+      share >= 30 ? chalk.red(`${share.toFixed(1)}%`) : share >= 15 ? chalk.yellow(`${share.toFixed(1)}%`) : chalk.dim(`${share.toFixed(1)}%`),
+      chalk.dim(fmtTokensShort(row.avg_tokens_per_run)),
+      cacheHit >= 90 ? chalk.green(`${cacheHit.toFixed(0)}%`) : cacheHit >= 50 ? chalk.yellow(`${cacheHit.toFixed(0)}%`) : chalk.red(`${cacheHit.toFixed(0)}%`),
       fmtNum(row.total_input),
       fmtNum(row.total_output),
       fmtNum(row.total_cache_read),
       fmtNum(row.total_cache_create),
-      chalk.bold(fmtTokensShort(total)),
-      chalk.dim(fmtTokensShort(row.avg_tokens_per_run)),
     ]);
   }
 
   table.push([
     chalk.bold("Total"),
     "",
-    "",
-    "",
-    "",
-    "",
     chalk.bold.green(fmtTokensShort(grandTotal)),
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     "",
   ]);
 
@@ -226,5 +240,70 @@ function reportByProvider(db: Database, sinceDate: string, sinceLabel: string) {
   ]);
 
   console.log(table.toString());
+  console.log();
+}
+
+function reportTrend(db: Database, sinceDate: string, sinceLabel: string, provider?: string) {
+  const rows = db.queryTaskTrend(sinceDate, provider);
+
+  if (rows.length === 0) {
+    console.log(chalk.yellow("No data found. Run 'who-ate-my-tokens sync' first."));
+    return;
+  }
+
+  const weeks = [...new Set(rows.map(r => r.week))].sort();
+  const tasks = [...new Set(rows.map(r => r.task_name))];
+
+  const lookup = new Map<string, Map<string, { total_tokens: number; avg_per_run: number; runs: number }>>();
+  for (const row of rows) {
+    if (!lookup.has(row.task_name)) lookup.set(row.task_name, new Map());
+    lookup.get(row.task_name)!.set(row.week, row);
+  }
+
+  const providerLabel = provider ? ` [${provider}]` : "";
+  console.log();
+  console.log(chalk.bold(`Weekly Token Trend${providerLabel} (since ${sinceLabel})`));
+  console.log();
+
+  const table = new Table({
+    head: [
+      chalk.cyan("Task"),
+      ...weeks.map(w => chalk.cyan(w)),
+    ],
+    colAligns: ["left", ...weeks.map(() => "right" as const)],
+    style: { head: [], border: [] },
+  });
+
+  for (const task of tasks) {
+    const taskWeeks = lookup.get(task)!;
+    const cells: string[] = [task === "(general)" ? chalk.dim("(general)") : chalk.white(task)];
+
+    let prevTokens: number | null = null;
+    for (const week of weeks) {
+      const data = taskWeeks.get(week);
+      if (!data) {
+        cells.push(chalk.dim("-"));
+        prevTokens = null;
+        continue;
+      }
+
+      let delta = "";
+      if (prevTokens !== null && prevTokens > 0) {
+        const pct = ((data.total_tokens - prevTokens) / prevTokens * 100);
+        if (pct > 20) delta = chalk.red(` +${pct.toFixed(0)}%`);
+        else if (pct < -20) delta = chalk.green(` ${pct.toFixed(0)}%`);
+        else delta = chalk.dim(` ${pct >= 0 ? "+" : ""}${pct.toFixed(0)}%`);
+      }
+
+      cells.push(fmtTokensShort(data.total_tokens) + delta);
+      prevTokens = data.total_tokens;
+    }
+
+    table.push(cells);
+  }
+
+  console.log(table.toString());
+  console.log();
+  console.log(chalk.dim("Delta: week-over-week change. ") + chalk.red("+20%↑ ") + chalk.green("-20%↓"));
   console.log();
 }

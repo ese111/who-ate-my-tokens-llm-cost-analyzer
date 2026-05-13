@@ -130,6 +130,14 @@ export interface TotalStats {
   total_tokens: number;
 }
 
+export interface TaskTrendRow {
+  task_name: string;
+  week: string;
+  runs: number;
+  total_tokens: number;
+  avg_per_run: number;
+}
+
 export interface SessionRecordRow {
   message_id: string;
   input_tokens: number;

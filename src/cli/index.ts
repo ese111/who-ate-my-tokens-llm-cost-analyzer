@@ -38,12 +38,14 @@ program
   .option("-b, --by <grouping>", "Group by: task, model, provider", "task")
   .option("-p, --provider <name>", "Filter by provider (claude, codex, gemini)")
   .option("--json", "Output as JSON")
+  .option("--trend", "Show weekly token trend per task")
   .addHelpText("after", `
 Examples:
   $ who-ate-my-tokens report
   $ who-ate-my-tokens report --since 7d --by model
   $ who-ate-my-tokens report --by provider
-  $ who-ate-my-tokens report -p claude --json`)
+  $ who-ate-my-tokens report -p claude --json
+  $ who-ate-my-tokens report --trend --since 30d`)
   .action(runReport);
 
 program

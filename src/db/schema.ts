@@ -1,7 +1,7 @@
 import BetterSqlite3 from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { TokenRecord, ParseState, TaskUsageRow, AdapterState, ModelUsageRow, ProviderUsageRow, TotalStats, SessionRecordRow } from "../shared/types.js";
+import type { TokenRecord, ParseState, TaskUsageRow, AdapterState, ModelUsageRow, ProviderUsageRow, TotalStats, SessionRecordRow, TaskTrendRow } from "../shared/types.js";
 
 export class Database {
   private db: BetterSqlite3.Database;
@@ -275,6 +275,26 @@ export class Database {
       FROM token_records
       WHERE session_id = ?
     `).all(sessionId) as SessionRecordRow[];
+  }
+
+  queryTaskTrend(sinceDate: string, provider?: string): TaskTrendRow[] {
+    const providerFilter = provider ? "AND provider = ?" : "";
+    const params: unknown[] = [sinceDate];
+    if (provider) params.push(provider);
+
+    return this.db.prepare(`
+      SELECT
+        COALESCE(task_name, '(general)') as task_name,
+        strftime('%Y-W%W', timestamp) as week,
+        COUNT(DISTINCT session_id || '-' || COALESCE(task_name, '(general)')) as runs,
+        SUM(input_tokens + output_tokens + cache_read_tokens + cache_create_tokens + reasoning_tokens) as total_tokens,
+        CAST(SUM(input_tokens + output_tokens + cache_read_tokens + cache_create_tokens + reasoning_tokens) AS REAL)
+          / MAX(1, COUNT(DISTINCT session_id || '-' || COALESCE(task_name, '(general)'))) as avg_per_run
+      FROM token_records
+      WHERE timestamp >= ? ${providerFilter}
+      GROUP BY task_name, week
+      ORDER BY week, total_tokens DESC
+    `).all(...params) as TaskTrendRow[];
   }
 
   resetAll() {
