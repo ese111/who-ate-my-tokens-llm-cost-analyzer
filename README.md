@@ -57,6 +57,7 @@ who-ate-my-tokens report [options]
 | `-b, --by <grouping>` | `task` | 그룹 기준: `task`, `skill`, `model`, `provider` |
 | `-p, --provider <name>` | 전체 | 프로바이더 필터: `claude`, `codex`, `gemini` |
 | `--json` | - | JSON 형식으로 출력 |
+| `--trend` | - | 주차별 토큰 트렌드 (전주 대비 증감률 포함) |
 
 **기간 형식:**
 
@@ -84,7 +85,12 @@ who-ate-my-tokens report -p claude --since 2w
 
 # JSON 출력 (스크립트 연동용)
 who-ate-my-tokens report --by model --json
+
+# 주차별 트렌드 (토큰 과소비 탐지)
+who-ate-my-tokens report --trend --since 30d
 ```
+
+태스크별 리포트에는 **Share%** (전체 대비 점유율)와 **Cache%** (캐시 효율성) 컬럼이 포함됩니다.
 
 ### `verify` — 데이터 정합성 검증
 
